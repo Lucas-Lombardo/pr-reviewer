@@ -548,6 +548,7 @@ Refacto:
                 <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: #666;">
                     📊 Analysé: ${prData.files.length} fichiers • ${new Date().toLocaleTimeString('fr-FR')}
                 </div>
+                ${generateJiraInfo(prData)}
                 ${formattedContent}
             </div>
         `;
@@ -628,6 +629,90 @@ Refacto:
         });
 
         return html;
+    }
+
+    function generateJiraInfo(prData) {
+        // Extraire les informations Jira du titre et de la description
+        const jiraTicket = extractJiraTicket(prData.title);
+        const jiraLinks = extractJiraLinks(prData.description);
+
+        if (!jiraTicket && jiraLinks.length === 0) {
+            return ''; // Pas d'infos Jira à afficher
+        }
+
+        let jiraHtml = `
+            <div style="background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); border: 1px solid #bbdefb; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 12px 0; color: #1976d2; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                    🎫 Informations Jira
+                </h4>
+        `;
+
+        if (jiraTicket) {
+            const jiraUrl = `https://your-domain.atlassian.net/browse/${jiraTicket}`;
+            jiraHtml += `
+                <div style="margin-bottom: 8px;">
+                    <strong>Ticket principal:</strong> 
+                    <a href="${jiraUrl}" target="_blank" style="color: #1976d2; text-decoration: none; font-weight: 600;">${jiraTicket}</a>
+                    <span style="font-size: 12px; color: #666; margin-left: 8px;">📋 Extrait du titre</span>
+                </div>
+            `;
+        }
+
+        if (jiraLinks.length > 0) {
+            jiraHtml += `
+                <div style="margin-bottom: 8px;">
+                    <strong>Liens dans la description:</strong>
+                    <div style="margin-top: 4px;">
+                        ${jiraLinks.map(link => `
+                            <a href="${link.url}" target="_blank" style="color: #1976d2; text-decoration: none; margin-right: 12px; font-size: 13px;">
+                                🔗 ${link.ticket}
+                            </a>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        jiraHtml += '</div>';
+        return jiraHtml;
+    }
+
+    function extractJiraTicket(title) {
+        // Extraire le ticket Jira du format [INTL-1234] ou similaire
+        const match = title.match(/\[([A-Z]+-\d+)\]/);
+        return match ? match[1] : null;
+    }
+
+    function extractJiraLinks(description) {
+        if (!description) return [];
+
+        const links = [];
+
+        // Rechercher les URLs Jira complètes
+        const urlPattern = /https?:\/\/[^\s]*\.atlassian\.net\/browse\/([A-Z]+-\d+)/g;
+        let match;
+
+        while ((match = urlPattern.exec(description)) !== null) {
+            links.push({
+                ticket: match[1],
+                url: match[0]
+            });
+        }
+
+        // Rechercher les références de tickets simples (INTL-1234)
+        const ticketPattern = /\b([A-Z]+-\d+)\b/g;
+        while ((match = ticketPattern.exec(description)) !== null) {
+            const ticket = match[1];
+            // Éviter les doublons
+            if (!links.some(link => link.ticket === ticket)) {
+                links.push({
+                    ticket: ticket,
+                    url: `https://your-domain.atlassian.net/browse/${ticket}`
+                });
+            }
+        }
+
+        return links;
     }
 
     function showError(message) {
