@@ -1,102 +1,445 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude PR Reviewer - Configuration</title>
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            width: 350px;
-            padding: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
+            width: 400px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #333;
         }
-        input[type="password"], input[type="text"] {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            box-sizing: border-box;
+
+        .container {
+            background: white;
+            margin: 0;
+            border-radius: 0;
+            min-height: 100vh;
         }
-        button {
-            background-color: #0969da;
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 24px;
+        }
+
+        .info-box {
+            background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+            border: 1px solid #bbdefb;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .info-box strong {
+            color: #1976d2;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .info-box ol {
+            margin-left: 16px;
+        }
+
+        .info-box li {
+            margin-bottom: 4px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .form-group input[type="password"],
+        .form-group input[type="text"],
+        .form-group select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e4e8;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            background: #fafbfc;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 6px;
+            color: #666;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .toggle-password {
+            position: relative;
+        }
+
+        .toggle-password button {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 4px;
+            border-radius: 4px;
+            transition: color 0.2s ease;
+        }
+
+        .toggle-password button:hover {
+            color: #333;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 10px 16px;
-            border-radius: 6px;
+            padding: 12px 20px;
+            border-radius: 8px;
             cursor: pointer;
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
             width: 100%;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
-        button:hover {
-            background-color: #0860ca;
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn.loading::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
         .status {
-            margin-top: 10px;
-            padding: 8px;
-            border-radius: 4px;
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: 8px;
             font-size: 13px;
+            font-weight: 500;
+            display: none;
+            animation: slideIn 0.3s ease;
         }
-        .success {
-            background-color: #d1e7dd;
-            color: #0f5132;
-            border: 1px solid #badbcc;
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        .error {
-            background-color: #f8d7da;
+
+        .status.success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
-        .info {
-            background-color: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
-            margin-bottom: 15px;
+
+        .status.warning {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .config-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+
+        .config-status.configured {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .config-status.not-configured {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .config-icon {
+            font-size: 16px;
+        }
+
+        .advanced-section {
+            border-top: 1px solid #e1e4e8;
+            padding-top: 20px;
+            margin-top: 20px;
+        }
+
+        .advanced-toggle {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 16px;
+            padding: 4px;
+            border-radius: 4px;
+            transition: color 0.2s ease;
+        }
+
+        .advanced-toggle:hover {
+            color: #333;
+        }
+
+        .advanced-content {
+            display: none;
+        }
+
+        .advanced-content.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        .footer {
+            padding: 16px 24px;
+            background: #f8f9fa;
+            border-top: 1px solid #e1e4e8;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .links {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+
+        .validation-message {
+            font-size: 12px;
+            margin-top: 4px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .validation-message.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .validation-message.success {
+            background: #efe;
+            color: #363;
+            border: 1px solid #cfc;
+        }
+
+        @media (max-width: 400px) {
+            body {
+                width: 100%;
+            }
+
+            .content {
+                padding: 16px;
+            }
+
+            .header {
+                padding: 16px;
+            }
         }
     </style>
 </head>
 <body>
-<div class="header">
-    <h2>🤖 Claude PR Reviewer</h2>
-</div>
-
-<div class="info">
-    <strong>Instructions:</strong><br>
-    1. Configurez vos clés API ci-dessous<br>
-    2. Rendez-vous sur une pull request GitHub<br>
-    3. Cliquez sur "Review with Claude"
-</div>
-
-<form id="settingsForm">
-    <div class="form-group">
-        <label for="claudeApiKey">Clé API Claude:</label>
-        <input type="password" id="claudeApiKey" placeholder="sk-ant-..." required>
+<div class="container">
+    <div class="header">
+        <h1>🤖 Claude PR Reviewer</h1>
+        <p>Configuration et paramètres</p>
     </div>
 
-    <div class="form-group">
-        <label for="githubToken">Token GitHub (optionnel):</label>
-        <input type="password" id="githubToken" placeholder="ghp_... ou laissez vide">
-        <small style="color: #666; font-size: 12px;">
-            Requis uniquement pour les repos privés
-        </small>
+    <div class="content">
+        <div id="configStatus" class="config-status">
+            <span class="config-icon">⚙️</span>
+            <span>Vérification de la configuration...</span>
+        </div>
+
+        <div class="info-box">
+            <strong>📋 Instructions rapides:</strong>
+            <ol>
+                <li>Configurez votre clé API Claude ci-dessous</li>
+                <li>Token GitHub optionnel (repos privés uniquement)</li>
+                <li>Rendez-vous sur une pull request GitHub</li>
+                <li>Cliquez sur "Review with Claude"</li>
+            </ol>
+        </div>
+
+        <form id="settingsForm">
+            <div class="form-group">
+                <label for="claudeApiKey">
+                    🔑 Clé API Claude <span style="color: #e74c3c;">*</span>
+                </label>
+                <div class="toggle-password">
+                    <input type="password" id="claudeApiKey" placeholder="sk-ant-..." required>
+                    <button type="button" id="toggleClaudeKey" title="Afficher/Masquer">👁️</button>
+                </div>
+                <small>
+                    Obtenez votre clé sur
+                    <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>
+                </small>
+                <div id="claudeKeyValidation" class="validation-message"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="githubToken">
+                    🐙 Token GitHub (optionnel)
+                </label>
+                <div class="toggle-password">
+                    <input type="password" id="githubToken" placeholder="ghp_... ou laissez vide">
+                    <button type="button" id="toggleGithubToken" title="Afficher/Masquer">👁️</button>
+                </div>
+                <small>
+                    Requis uniquement pour les repos privés.
+                    <a href="https://github.com/settings/tokens" target="_blank">Générer un token</a>
+                </small>
+                <div id="githubTokenValidation" class="validation-message"></div>
+            </div>
+
+            <div class="advanced-section">
+                <button type="button" class="advanced-toggle" id="advancedToggle">
+                    <span>⚙️</span>
+                    <span>Paramètres avancés</span>
+                    <span id="advancedArrow">▼</span>
+                </button>
+
+                <div class="advanced-content" id="advancedContent">
+                    <div class="form-group">
+                        <label for="selectedModel">🤖 Modèle Claude</label>
+                        <select id="selectedModel">
+                            <option value="claude-3-haiku-20240307">Claude 3 Haiku (Rapide, économique)</option>
+                            <option value="claude-3-sonnet-20240229">Claude 3 Sonnet (Équilibré)</option>
+                            <option value="claude-3-opus-20240229">Claude 3 Opus (Précis, coûteux)</option>
+                        </select>
+                        <small>
+                            Haiku recommandé pour les reviews rapides et économiques
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="maxFiles">📁 Nombre max de fichiers</label>
+                        <input type="number" id="maxFiles" min="5" max="50" value="20">
+                        <small>
+                            Limite le nombre de fichiers analysés par PR (5-50)
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn" id="saveBtn">
+                💾 Sauvegarder la configuration
+            </button>
+        </form>
+
+        <div id="status" class="status"></div>
     </div>
 
-    <button type="submit">💾 Sauvegarder</button>
-</form>
-
-<div id="status"></div>
+    <div class="footer">
+        <div class="links">
+            <a href="https://github.com/anthropics/claude-api-docs" target="_blank">Documentation Claude</a>
+            <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token" target="_blank">Aide GitHub</a>
+        </div>
+        <div>Claude PR Reviewer v1.1.0</div>
+    </div>
+</div>
 
 <script src="popup.js"></script>
 </body>

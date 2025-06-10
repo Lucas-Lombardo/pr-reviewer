@@ -1,78 +1,83 @@
-// Content script qui s'exécute sur les pages GitHub PR
+// Content script avec appels API directs pour debug
 (function() {
     'use strict';
 
-    console.log('🚀 Claude PR Reviewer - Content script chargé!');
-    console.log('URL:', window.location.href);
+    console.log('🚀 Claude PR Reviewer - Debug direct API');
 
     let reviewButton = null;
     let isReviewing = false;
 
-    // Attendre que la page soit chargée
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
-        init();
+        setTimeout(init, 1000);
     }
 
     function init() {
-        console.log('🚀 Initialisation de Claude PR Reviewer...');
-        console.log('URL:', window.location.href);
-        console.log('Pathname:', window.location.pathname);
-
-        // Vérifier qu'on est bien sur une page de PR avec une regex plus flexible
         const isPRPage = /\/pull\/\d+/.test(window.location.pathname);
-        console.log('Est une page PR?', isPRPage);
+        if (!isPRPage) return;
 
-        if (!isPRPage) {
-            console.log('❌ Pas une page de PR, arrêt');
-            return;
-        }
-
-        console.log('✅ Page PR détectée, injection des styles...');
         injectStyles();
-
-        console.log('✅ Création du bouton de review...');
         createReviewButton();
-
-        // Observer les changements DOM pour maintenir le bouton et gérer la navigation SPA
-        const observer = new MutationObserver((mutations) => {
-            // Vérifier si on est toujours sur une page PR
-            const isPRPage = /\/pull\/\d+/.test(window.location.pathname);
-
-            if (isPRPage && !document.querySelector('#claude-review-btn')) {
-                console.log('🔄 Bouton manquant détecté, recréation...');
-                setTimeout(createReviewButton, 500);
-            } else if (!isPRPage && document.querySelector('#claude-review-btn')) {
-                // Supprimer le bouton si on n'est plus sur une page PR
-                const btn = document.querySelector('#claude-review-btn');
-                if (btn) btn.remove();
-            }
-        });
-
-        observer.observe(document.body, { childList: true, subtree: true });
+        setupObserver();
     }
 
     function injectStyles() {
-        // Éviter d'injecter les styles plusieurs fois
         if (document.querySelector('#claude-review-styles')) return;
 
         const styles = `
-        /* Styles pour l'extension Claude PR Reviewer */
-        .claude-review-panel {
-            background: #f6f8fa;
-            border: 1px solid #d1d9e0;
+        #claude-review-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
             border-radius: 8px;
-            margin: 16px 0;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-left: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 160px;
+            justify-content: center;
+        }
+
+        #claude-review-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        #claude-review-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .claude-review-panel {
+            background: #ffffff;
+            border: 1px solid #d1d9e0;
+            border-radius: 12px;
+            margin: 20px 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            animation: fadeIn 0.5s ease;
+            width: 100%;
+            max-width: none;
+            position: static;
+            z-index: auto;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .claude-review-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 12px 16px;
-            border-radius: 8px 8px 0 0;
+            padding: 16px 20px;
+            border-radius: 12px 12px 0 0;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -80,220 +85,54 @@
 
         .claude-review-header h3 {
             margin: 0;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: 600;
         }
 
         .claude-close-btn {
-            background: rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.15);
             border: none;
             color: white;
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 18px;
-            line-height: 1;
+            font-size: 20px;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.2s ease;
         }
 
         .claude-close-btn:hover {
-            background: rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.25);
         }
 
         .claude-review-content {
-            padding: 20px;
-            line-height: 1.6;
+            padding: 24px;
+            line-height: 1.7;
             color: #24292f;
-        }
-
-        .claude-review-content h2 {
-            color: #0969da;
-            border-bottom: 2px solid #eee;
-            padding-bottom: 8px;
-            margin-top: 24px;
-            margin-bottom: 16px;
-            font-size: 20px;
-        }
-
-        .claude-review-content h3 {
-            color: #0969da;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            font-size: 18px;
-        }
-
-        .claude-review-content h4 {
-            color: #656d76;
-            margin-top: 16px;
-            margin-bottom: 8px;
-            font-size: 16px;
-        }
-
-        .claude-review-content p {
-            margin-bottom: 12px;
-        }
-
-        .claude-review-content code {
-            background: #f3f4f6;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-            font-size: 13px;
-            color: #d73a49;
-        }
-
-        .claude-review-content pre {
-            background: #f6f8fa;
-            border: 1px solid #d1d9e0;
-            border-radius: 6px;
-            padding: 12px;
-            overflow-x: auto;
-            margin: 12px 0;
-        }
-
-        .claude-review-content pre code {
-            background: none;
-            padding: 0;
-            color: #24292f;
-            font-size: 12px;
-        }
-
-        .claude-review-content strong {
-            color: #0969da;
-            font-weight: 600;
-        }
-
-        .claude-review-content em {
-            color: #656d76;
-            font-style: italic;
+            max-height: 70vh;
+            overflow-y: auto;
         }
 
         .claude-error {
-            background: #ffeaea;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-            padding: 12px 16px;
-            border-radius: 6px;
-            margin: 16px;
-            position: relative;
+            background: #fff5f5;
+            border: 1px solid #fed7d7;
+            color: #c53030;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+            animation: fadeIn 0.3s ease;
         }
 
-        .claude-error button {
-            background: none;
-            border: none;
-            color: #721c24;
-            cursor: pointer;
-            font-size: 18px;
-            line-height: 1;
-        }
-
-        #claude-review-btn {
-            transition: all 0.2s ease;
-            position: relative;
-        }
-
-        #claude-review-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        #claude-review-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .claude-context-section {
+        .claude-progress {
             background: #f8f9fa;
-            border-left: 4px solid #0969da;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 0 6px 6px 0;
-            color: #24292f;
-        }
-        
-        .claude-context-section strong {
-            color: #0969da;
-            font-weight: 600;
-        }
-        
-        .claude-context-section a {
-            color: #0969da;
-            text-decoration: none;
-        }
-        
-        .claude-context-section a:hover {
-            text-decoration: underline;
-        }
-
-        .claude-breaking-warning {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-left: 4px solid #f39c12;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 0 6px 6px 0;
-            color: #856404;
-        }
-        
-        .claude-breaking-warning strong {
-            color: #b45309;
-            font-weight: 600;
-        }
-
-        .claude-breaking-danger {
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-left: 4px solid #dc3545;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 0 6px 6px 0;
-            color: #721c24;
-        }
-        
-        .claude-breaking-danger strong {
-            color: #721c24;
-            font-weight: 600;
-        }
-
-        @media (max-width: 768px) {
-            .claude-review-panel {
-                margin: 8px;
-                border-radius: 6px;
-            }
-            
-            .claude-review-content {
-                padding: 16px;
-                font-size: 14px;
-            }
-            
-            .claude-review-header {
-                padding: 10px 12px;
-            }
-            
-            .claude-review-header h3 {
-                font-size: 14px;
-            }
-        }
-
-        .claude-review-content pre code {
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .claude-review-content ul, .claude-review-content ol {
-            padding-left: 20px;
-            margin-bottom: 12px;
-        }
-
-        .claude-review-content li {
-            margin-bottom: 4px;
-        }
-
-        .claude-review-content h2:first-child {
-            margin-top: 0;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin: 8px 0;
+            font-size: 14px;
+            border-left: 4px solid #667eea;
         }
         `;
 
@@ -304,102 +143,113 @@
     }
 
     function createReviewButton() {
-        // Éviter les doublons
         if (document.querySelector('#claude-review-btn')) return;
 
-        console.log('🤖 Tentative de création du bouton de review...');
-        console.log('URL actuelle:', window.location.href);
-        console.log('Pathname:', window.location.pathname);
-
-        // Essayer plusieurs sélecteurs pour trouver où placer le bouton
-        const possibleContainers = [
+        const selectors = [
             '.gh-header-actions',
             '.js-issue-header-actions',
-            '.TableObject-item--primary',
             '[data-testid="pull-request-header-actions"]',
-            '.pr-toolbar',
-            '.js-issue-header',
-            '.gh-header-meta',
-            '.flex-auto.min-width-0 .d-flex',
+            '.TableObject-item--primary .d-flex',
+            '.pr-toolbar .d-flex',
             '.Box-header .d-flex'
         ];
 
         let buttonContainer = null;
-        for (const selector of possibleContainers) {
-            buttonContainer = document.querySelector(selector);
-            if (buttonContainer) {
-                console.log('📍 Container trouvé:', selector);
+        for (const selector of selectors) {
+            const element = document.querySelector(selector);
+            if (element) {
+                buttonContainer = element;
                 break;
             }
         }
 
         if (!buttonContainer) {
-            console.log('❌ Aucun container trouvé, essai avec fallback...');
-            // Fallback: créer notre propre container
-            const prHeader = document.querySelector('.js-issue-header') ||
-                document.querySelector('[data-hpc]') ||
-                document.querySelector('.gh-header');
-
-            if (prHeader) {
-                buttonContainer = document.createElement('div');
-                buttonContainer.style.cssText = 'margin: 10px 0; text-align: right;';
-                prHeader.appendChild(buttonContainer);
-                console.log('✅ Container fallback créé');
-            } else {
-                console.log('❌ Impossible de trouver un endroit pour le bouton, retry...');
-                setTimeout(createReviewButton, 1000);
-                return;
+            const fallbackSelectors = ['.js-issue-header', '[data-hpc]', '.gh-header'];
+            for (const selector of fallbackSelectors) {
+                const element = document.querySelector(selector);
+                if (element) {
+                    buttonContainer = document.createElement('div');
+                    buttonContainer.style.cssText = 'margin: 16px 0; text-align: right; padding: 0 16px;';
+                    element.insertBefore(buttonContainer, element.firstChild);
+                    break;
+                }
             }
+        }
+
+        if (!buttonContainer) {
+            setTimeout(createReviewButton, 2000);
+            return;
         }
 
         reviewButton = document.createElement('button');
         reviewButton.id = 'claude-review-btn';
-        reviewButton.className = 'btn btn-sm btn-outline';
         reviewButton.innerHTML = '🤖 Review with Claude';
-        reviewButton.style.cssText = 'margin-left: 8px; background-color: #f3f4f6; border: 1px solid #d1d9e0; color: #24292f; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer;';
-
         reviewButton.addEventListener('click', handleReviewClick);
 
         buttonContainer.appendChild(reviewButton);
-        console.log('✅ Bouton de review créé avec succès!');
+        console.log('✅ Bouton créé');
+    }
+
+    function setupObserver() {
+        const observer = new MutationObserver(() => {
+            const isPRPage = /\/pull\/\d+/.test(window.location.pathname);
+            if (isPRPage && !document.querySelector('#claude-review-btn')) {
+                setTimeout(createReviewButton, 500);
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     async function handleReviewClick() {
         if (isReviewing) return;
 
+        console.log('🤖 Début de la review...');
         isReviewing = true;
         reviewButton.disabled = true;
-        reviewButton.innerHTML = '⏳ Analyzing...';
 
         try {
-            // Vérifier la configuration
+            // Étape 1: Configuration
+            updateProgress('🔑 Vérification de la configuration...');
             const config = await chrome.storage.local.get(['claudeApiKey', 'githubToken']);
             if (!config.claudeApiKey) {
-                throw new Error('Clé API Claude non configurée. Utilisez l\'icône de l\'extension pour la configurer.');
+                throw new Error('Clé API Claude non configurée. Cliquez sur l\'icône de l\'extension pour la configurer.');
             }
+            console.log('✅ Configuration OK');
 
-            // Récupérer les informations de la PR
+            // Étape 2: Extraction PR info
+            updateProgress('📍 Extraction des informations de la PR...');
             const prInfo = extractPRInfo();
-            console.log('PR Info:', prInfo);
+            console.log('✅ PR Info:', prInfo);
 
-            // Récupérer le code de la PR avec analyse contextuelle
-            const prData = await fetchPRData(prInfo, config.githubToken);
-            console.log('PR Data fetched with contextual analysis');
+            // Étape 3: Récupération GitHub
+            updateProgress('📥 Récupération des données GitHub...');
+            const prData = await fetchGitHubData(prInfo, config.githubToken);
+            console.log('✅ GitHub Data:', prData);
 
-            // Envoyer à Claude pour review
-            const review = await sendToClaudeForReview(prData, config.claudeApiKey);
+            // Étape 4: Appel Claude
+            updateProgress('🤖 Analyse par Claude AI...');
+            const review = await callClaudeAPI(prData, config.claudeApiKey);
+            console.log('✅ Claude Review:', review);
 
-            // Afficher le résultat
-            displayReview(review, prData.contextualData);
+            // Étape 5: Affichage
+            updateProgress('✨ Finalisation...');
+            displayReview(review, prData);
+
+            updateProgress('🎉 Terminé!');
 
         } catch (error) {
-            console.error('Erreur lors de la review:', error);
-            showError('Erreur: ' + error.message);
+            console.error('❌ Erreur:', error);
+            showError(`Erreur: ${error.message}`);
         } finally {
             isReviewing = false;
             reviewButton.disabled = false;
             reviewButton.innerHTML = '🤖 Review with Claude';
         }
+    }
+
+    function updateProgress(message) {
+        reviewButton.innerHTML = message;
+        console.log(message);
     }
 
     function extractPRInfo() {
@@ -408,74 +258,92 @@
         const repo = pathParts[2];
         const prNumber = pathParts[4];
 
+        if (!owner || !repo || !prNumber) {
+            throw new Error('Impossible d\'extraire les informations de la PR');
+        }
+
         return { owner, repo, prNumber };
     }
 
-    async function fetchPRData(prInfo, githubToken) {
+    async function fetchGitHubData(prInfo, githubToken) {
         const { owner, repo, prNumber } = prInfo;
+        const baseUrl = 'https://api.github.com';
 
-        // Utiliser le background script pour éviter les problèmes CORS
-        return new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({
-                action: 'fetchGitHub',
-                owner: owner,
-                repo: repo,
-                prNumber: prNumber,
-                githubToken: githubToken
-            }, (response) => {
-                if (chrome.runtime.lastError) {
-                    reject(new Error(chrome.runtime.lastError.message));
-                } else if (response.error) {
-                    reject(new Error(response.error));
-                } else {
-                    resolve(response.result);
-                }
-            });
-        });
-    }
-
-    function detectLanguage(filename) {
-        const ext = filename.split('.').pop().toLowerCase();
-        const langMap = {
-            'js': 'javascript',
-            'ts': 'typescript',
-            'jsx': 'javascript',
-            'tsx': 'typescript',
-            'py': 'python',
-            'java': 'java',
-            'cpp': 'cpp',
-            'c': 'c',
-            'cs': 'csharp',
-            'php': 'php',
-            'rb': 'ruby',
-            'go': 'go',
-            'rs': 'rust',
-            'kt': 'kotlin',
-            'swift': 'swift',
-            'scala': 'scala',
-            'html': 'html',
-            'css': 'css',
-            'scss': 'scss',
-            'less': 'less',
-            'json': 'json',
-            'xml': 'xml',
-            'yaml': 'yaml',
-            'yml': 'yaml',
-            'md': 'markdown'
+        const headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Claude-PR-Reviewer/1.1.0'
         };
-        return langMap[ext] || 'text';
+
+        if (githubToken) {
+            headers['Authorization'] = `token ${githubToken}`;
+        }
+
+        try {
+            console.log(`🔍 Fetching PR: ${owner}/${repo}#${prNumber}`);
+
+            // Récupérer les infos de base de la PR
+            const prResponse = await fetch(`${baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+                headers,
+                method: 'GET'
+            });
+
+            if (!prResponse.ok) {
+                const errorText = await prResponse.text();
+                console.error('❌ GitHub PR Error:', prResponse.status, errorText);
+                throw new Error(`Erreur GitHub API (PR): ${prResponse.status} - ${errorText}`);
+            }
+
+            const pr = await prResponse.json();
+            console.log('✅ PR Data fetched');
+
+            // Récupérer les fichiers modifiés
+            const filesResponse = await fetch(`${baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/files`, {
+                headers,
+                method: 'GET'
+            });
+
+            if (!filesResponse.ok) {
+                const errorText = await filesResponse.text();
+                console.error('❌ GitHub Files Error:', filesResponse.status, errorText);
+                throw new Error(`Erreur GitHub API (fichiers): ${filesResponse.status} - ${errorText}`);
+            }
+
+            const files = await filesResponse.json();
+            console.log('✅ Files Data fetched:', files.length, 'files');
+
+            // Filtrer et traiter les fichiers
+            const relevantFiles = files
+                .filter(file => file.status !== 'removed' && file.patch)
+                .slice(0, 10) // Limiter à 10 fichiers pour le test
+                .map(file => ({
+                    filename: file.filename,
+                    status: file.status,
+                    additions: file.additions,
+                    deletions: file.deletions,
+                    patch: file.patch,
+                    language: detectLanguage(file.filename)
+                }));
+
+            return {
+                title: pr.title,
+                description: pr.body || '',
+                files: relevantFiles,
+                totalFiles: files.length,
+                url: pr.html_url,
+                author: pr.user.login
+            };
+
+        } catch (error) {
+            console.error('❌ GitHub Fetch Error:', error);
+            throw error;
+        }
     }
 
-    async function sendToClaudeForReview(prData, apiKey) {
-        // Construction du contexte enrichi
-        const contextualInfo = buildContextualInfo(prData.contextualData);
-
+    async function callClaudeAPI(prData, apiKey) {
         const prompt = `Tu es un expert en review de code. Analyse cette pull request GitHub et signale UNIQUEMENT les problèmes concrets que tu identifies dans le code fourni.
 
 **Pull Request: ${prData.title}**
 ${prData.description ? `**Description:** ${prData.description}` : '**Description:** Aucune description fournie'}
-
-${contextualInfo}
 
 **Fichiers modifiés (${prData.files.length}/${prData.totalFiles}):**
 
@@ -488,7 +356,6 @@ ${file.patch}
 
 **INSTRUCTIONS IMPORTANTES:**
 - Analyse UNIQUEMENT le code fourni ci-dessus
-- Prends en compte le contexte fourni (commits, Jira, breaking changes)
 - Ne signale QUE les problèmes que tu peux VOIR concrètement dans le code
 - N'invente AUCUN problème, ne fais AUCUNE supposition
 - Si tu ne vois pas de problème dans une catégorie, écris "Rien à signaler"
@@ -500,8 +367,6 @@ ${file.patch}
 - Titre respecte le format : <gitmoji><espace>[INTL-1234]<espace>Titre en français
 - Description contient un lien Jira si applicable
 - Description contient des instructions de déploiement si nécessaire
-- Cohérence avec les tickets Jira mentionnés
-- Branche cible appropriée
 
 **Ménage:**
 - Debug oublié : console.log, dd, dump, var_dump, print_r
@@ -523,7 +388,6 @@ ${file.patch}
 - Noms de classes/méthodes/fichiers non conformes
 - Textes non traduits (strings hardcodées)
 - Emplacements de fichiers inappropriés
-- Cohérence avec l'historique des commits
 
 **Qualité:**
 - Indentation incorrecte
@@ -537,11 +401,6 @@ ${file.patch}
 - Tests unitaires manquants pour nouvelle logique
 - Tests fonctionnels manquants
 
-**Breaking Changes:**
-- Vérification de la cohérence avec les changements détectés
-- Impact sur l'API publique
-- Documentation des breaking changes
-
 **Refactoring:**
 - Code dupliqué identique
 - Méthodes trop longues (>20 lignes)
@@ -550,7 +409,7 @@ ${file.patch}
 **FORMAT DE RÉPONSE OBLIGATOIRE:**
 
 Pull Request:
-[Problèmes du titre/description/contexte de la PR ou "Rien à signaler"]
+[Problèmes du titre/description de la PR ou "Rien à signaler"]
 
 Ménage:
 [Problèmes de debug/TODO dans fichier:ligne ou "Rien à signaler"]
@@ -567,211 +426,219 @@ Qualité:
 Tests:
 [Problèmes de tests ou "Rien à signaler"]
 
-Breaking Changes:
-[Problèmes de compatibilité ou "Rien à signaler"]
-
 Refacto:
 [Améliorations possibles dans fichier:ligne ou "Rien à signaler"]
 
-**RAPPEL:** Ne signale QUE ce que tu vois réellement dans le code fourni. Utilise le contexte pour mieux comprendre mais reste factuel.`;
+**RAPPEL:** Ne signale QUE ce que tu vois réellement dans le code fourni. Pas de suppositions, pas d'inventions.`;
 
-        // Utiliser le background script pour éviter les problèmes CORS
-        return new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({
-                action: 'callClaude',
-                prompt: prompt,
-                apiKey: apiKey
-            }, (response) => {
-                if (chrome.runtime.lastError) {
-                    reject(new Error(chrome.runtime.lastError.message));
-                } else if (response.error) {
-                    reject(new Error(response.error));
-                } else {
-                    resolve(response.result);
-                }
+        try {
+            console.log('🔑 Calling Claude API...');
+
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                    'anthropic-dangerous-direct-browser-access': 'true'
+                },
+                body: JSON.stringify({
+                    model: 'claude-3-haiku-20240307',
+                    max_tokens: 2000,
+                    temperature: 0.1,
+                    messages: [{
+                        role: 'user',
+                        content: prompt
+                    }]
+                })
             });
-        });
+
+            console.log('📡 Claude Response Status:', response.status);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('❌ Claude API Error:', response.status, errorText);
+
+                if (response.status === 401) {
+                    throw new Error('Clé API Claude invalide. Vérifiez votre configuration.');
+                } else if (response.status === 429) {
+                    throw new Error('Trop de requêtes. Attendez quelques minutes.');
+                } else {
+                    throw new Error(`Erreur Claude API: ${response.status} - ${errorText}`);
+                }
+            }
+
+            const data = await response.json();
+            console.log('✅ Claude Response received');
+
+            return data.content[0].text;
+
+        } catch (error) {
+            console.error('❌ Claude API Error:', error);
+            throw error;
+        }
     }
 
-    function buildContextualInfo(contextualData) {
-        if (!contextualData) return '';
-
-        let contextInfo = '\n**CONTEXTE ENRICHI:**\n';
-
-        // Informations sur les branches et métadonnées
-        if (contextualData.prMetadata) {
-            const meta = contextualData.prMetadata;
-            contextInfo += `
-**Métadonnées:**
-- Branche source: ${meta.headBranch} → Branche cible: ${meta.baseBranch}
-- Statut: ${meta.isDraft ? 'Draft' : 'Prêt pour review'}
-- Modifications: +${meta.additions}/-${meta.deletions} lignes sur ${meta.changedFiles} fichiers
-`;
-        }
-
-        // Informations Jira
-        if (contextualData.jiraInfo && contextualData.jiraInfo.hasJiraReference) {
-            contextInfo += `
-**Tickets Jira liés:**
-- Tickets détectés: ${contextualData.jiraInfo.tickets.join(', ')}
-- Liens directs: ${contextualData.jiraInfo.links.length} lien(s) trouvé(s)
-`;
-        }
-
-        // Historique des commits
-        if (contextualData.commits && contextualData.commits.length > 0) {
-            contextInfo += `
-**Historique des commits (${contextualData.commits.length} commits):**
-${contextualData.commits.slice(0, 5).map(commit =>
-                `- ${commit.sha}: ${commit.message.split('\n')[0]} (${commit.author})`
-            ).join('\n')}
-${contextualData.commits.length > 5 ? `\n... et ${contextualData.commits.length - 5} autres commits` : ''}
-`;
-        }
-
-        // Breaking changes
-        if (contextualData.breakingChanges && contextualData.breakingChanges.hasBreakingChanges) {
-            contextInfo += `
-**⚠️ BREAKING CHANGES DÉTECTÉS (Risque: ${contextualData.breakingChanges.riskLevel}):**
-${contextualData.breakingChanges.indicators.map(indicator =>
-                `- ${indicator.type}: ${indicator.detail} (source: ${indicator.source})`
-            ).join('\n')}
-`;
-        }
-
-        // Analyse du code
-        if (contextualData.codeAnalysis) {
-            const analysis = contextualData.codeAnalysis;
-            contextInfo += `
-**Analyse du code:**
-- Langages: ${Object.keys(analysis.languages).join(', ')}
-- Total des modifications: ${analysis.totalChanges} lignes
-- Fichier le plus modifié: ${analysis.largestFile ? `${analysis.largestFile.name} (${analysis.largestFile.changes} changements)` : 'N/A'}
-- Fichiers de test: ${analysis.testFiles.length} fichier(s)
-- Fichiers de config: ${analysis.configFiles.length} fichier(s)
-- Nouveaux fichiers: ${analysis.hasNewFiles ? 'Oui' : 'Non'}
-- Fichiers supprimés: ${analysis.hasRemovedFiles ? 'Oui' : 'Non'}
-`;
-        }
-
-        return contextInfo + '\n';
+    function detectLanguage(filename) {
+        const ext = filename.split('.').pop()?.toLowerCase();
+        const langMap = {
+            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+            'py': 'python', 'java': 'java', 'php': 'php', 'rb': 'ruby', 'go': 'go',
+            'rs': 'rust', 'cpp': 'cpp', 'c': 'c', 'cs': 'csharp', 'swift': 'swift',
+            'html': 'html', 'css': 'css', 'scss': 'scss', 'json': 'json', 'yaml': 'yaml',
+            'md': 'markdown', 'sh': 'bash', 'sql': 'sql'
+        };
+        return langMap[ext] || 'text';
     }
 
-    function displayReview(review, contextualData) {
-        // Créer ou mettre à jour le panneau de review
-        let reviewPanel = document.querySelector('#claude-review-panel');
+    function displayReview(review, prData) {
+        // Supprimer l'ancien panneau s'il existe
+        const existingPanel = document.querySelector('#claude-review-panel');
+        if (existingPanel) {
+            existingPanel.remove();
+        }
 
-        if (!reviewPanel) {
-            reviewPanel = document.createElement('div');
-            reviewPanel.id = 'claude-review-panel';
-            reviewPanel.className = 'claude-review-panel';
+        const panel = document.createElement('div');
+        panel.id = 'claude-review-panel';
+        panel.className = 'claude-review-panel';
 
-            // Insérer après l'header de la PR
-            const insertAfter = document.querySelector('.gh-header') ||
-                document.querySelector('.js-issue-header') ||
-                document.querySelector('.pr-toolbar');
+        // Trouver l'endroit idéal : après le header de la PR mais avant le contenu
+        const insertionPoints = [
+            '.gh-header-meta',           // Infos de la PR (branches, etc.)
+            '.TimelineItem-body',        // Body principal de la PR
+            '.js-issue-header',          // Header complet de l'issue/PR
+            '.gh-header',                // Header général
+            '.Box-header',               // Header de box GitHub
+            '.discussion-timeline-actions' // Actions de discussion
+        ];
 
-            if (insertAfter) {
-                insertAfter.parentNode.insertBefore(reviewPanel, insertAfter.nextSibling);
-            } else {
-                document.body.appendChild(reviewPanel);
+        let insertionPoint = null;
+        for (const selector of insertionPoints) {
+            const element = document.querySelector(selector);
+            if (element) {
+                insertionPoint = element;
+                console.log(`📍 Point d'insertion trouvé: ${selector}`);
+                break;
             }
         }
 
-        // Construire les alertes contextuelles
-        const contextAlerts = buildContextAlerts(contextualData);
+        if (insertionPoint) {
+            // Insérer APRÈS l'élément trouvé
+            insertionPoint.parentNode.insertBefore(panel, insertionPoint.nextSibling);
+        } else {
+            // Fallback: chercher le container principal et insérer au début
+            const mainContent = document.querySelector('.repository-content, main .container-xl, main');
+            if (mainContent) {
+                mainContent.insertBefore(panel, mainContent.firstChild);
+            } else {
+                document.body.appendChild(panel);
+            }
+        }
 
-        reviewPanel.innerHTML = `
+        // Parser le format structuré de la réponse
+        const sections = parseReviewSections(review);
+        const formattedContent = formatReviewSections(sections);
+
+        panel.innerHTML = `
             <div class="claude-review-header">
-                <h3>🤖 Claude Code Review ${contextualData?.breakingChanges?.hasBreakingChanges ? '⚠️' : ''}</h3>
-                <button class="claude-close-btn" onclick="this.closest('#claude-review-panel').style.display='none'">×</button>
+                <h3>🤖 Claude Code Review - ${prData.author}</h3>
+                <button class="claude-close-btn" onclick="this.closest('#claude-review-panel').remove()">×</button>
             </div>
-            ${contextAlerts}
             <div class="claude-review-content">
-                ${formatReviewContent(review)}
+                <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: #666;">
+                    📊 Analysé: ${prData.files.length} fichiers • ${new Date().toLocaleTimeString('fr-FR')}
+                </div>
+                ${formattedContent}
             </div>
         `;
 
-        reviewPanel.style.display = 'block';
-        reviewPanel.scrollIntoView({ behavior: 'smooth' });
+        panel.style.display = 'block';
+
+        // Scroll vers le panneau avec un petit délai
+        setTimeout(() => {
+            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
     }
 
-    function buildContextAlerts(contextualData) {
-        if (!contextualData) return '';
+    function parseReviewSections(review) {
+        const sections = {
+            'Pull Request': [],
+            'Ménage': [],
+            'Typage': [],
+            'Cohérence': [],
+            'Qualité': [],
+            'Tests': [],
+            'Refacto': []
+        };
 
-        let alerts = '';
+        const lines = review.split('\n');
+        let currentSection = null;
 
-        // Alerte breaking changes
-        if (contextualData.breakingChanges && contextualData.breakingChanges.hasBreakingChanges) {
-            const riskLevel = contextualData.breakingChanges.riskLevel;
-            const alertClass = riskLevel === 'high' ? 'claude-breaking-danger' : 'claude-breaking-warning';
-            const icon = riskLevel === 'high' ? '🚨' : '⚠️';
+        for (const line of lines) {
+            const trimmed = line.trim();
 
-            alerts += `
-                <div class="${alertClass}">
-                    <strong>${icon} Breaking Changes Détectés (Risque: ${riskLevel})</strong><br>
-                    ${contextualData.breakingChanges.indicators.slice(0, 3).map(indicator =>
-                `• ${indicator.detail}`
-            ).join('<br>')}
-                    ${contextualData.breakingChanges.indicators.length > 3 ?
-                `<br>... et ${contextualData.breakingChanges.indicators.length - 3} autre(s)` : ''}
-                </div>
-            `;
+            // Détecter les en-têtes de section
+            const sectionMatch = Object.keys(sections).find(section =>
+                trimmed.toLowerCase().includes(section.toLowerCase() + ':') ||
+                trimmed.toLowerCase().startsWith(section.toLowerCase())
+            );
+
+            if (sectionMatch) {
+                currentSection = sectionMatch;
+                continue;
+            }
+
+            // Ajouter le contenu à la section courante
+            if (currentSection && trimmed && !trimmed.toLowerCase().includes('rien à signaler')) {
+                sections[currentSection].push(trimmed);
+            }
         }
 
-        // Alerte Jira
-        if (contextualData.jiraInfo && contextualData.jiraInfo.hasJiraReference) {
-            alerts += `
-                <div class="claude-context-section">
-                    <strong>🎫 Tickets Jira liés:</strong> ${contextualData.jiraInfo.tickets.join(', ')}
-                    ${contextualData.jiraInfo.links.length > 0 ?
-                `<br><strong>Liens:</strong> ${contextualData.jiraInfo.links.map(link =>
-                    `<a href="${link.url}" target="_blank">${link.ticket}</a>`
-                ).join(', ')}` : ''}
-                </div>
-            `;
-        }
-
-        // Résumé de l'analyse
-        if (contextualData.codeAnalysis) {
-            const analysis = contextualData.codeAnalysis;
-            alerts += `
-                <div class="claude-context-section">
-                    <strong>📊 Résumé:</strong> 
-                    ${analysis.totalChanges} lignes modifiées • 
-                    ${Object.keys(analysis.languages).length} langage(s) • 
-                    ${analysis.testFiles.length} test(s) • 
-                    ${contextualData.commits ? contextualData.commits.length : 0} commit(s)
-                </div>
-            `;
-        }
-
-        return alerts;
+        return sections;
     }
 
-    function formatReviewContent(review) {
-        // Convertir le markdown en HTML simple
-        return review
-            .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-            .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-            .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/`(.+?)`/g, '<code>$1</code>')
-            .replace(/```(\w+)?\n([\s\S]+?)\n```/g, '<pre><code>$2</code></pre>')
-            .replace(/\n\n/g, '</p><p>')
-            .replace(/\n/g, '<br>')
-            .replace(/^/, '<p>')
-            .replace(/$/, '</p>');
+    function formatReviewSections(sections) {
+        let html = '';
+
+        Object.entries(sections).forEach(([sectionName, issues]) => {
+            const hasIssues = issues.length > 0;
+            const icon = hasIssues ? '⚠️' : '✅';
+            const statusColor = hasIssues ? '#dc3545' : '#28a745';
+
+            html += `
+                <div style="margin-bottom: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid ${statusColor};">
+                    <h4 style="margin: 0 0 12px 0; color: ${statusColor}; font-size: 16px; font-weight: 600;">
+                        ${icon} ${sectionName}
+                    </h4>
+            `;
+
+            if (!hasIssues) {
+                html += '<p style="color: #28a745; margin: 0;">Rien à signaler</p>';
+            } else {
+                issues.forEach(issue => {
+                    html += `
+                        <div style="background: white; border: 1px solid #e1e4e8; border-radius: 6px; padding: 12px; margin-bottom: 8px;">
+                            ${issue.replace(/^[*-]\s*/, '')}
+                        </div>
+                    `;
+                });
+            }
+
+            html += '</div>';
+        });
+
+        return html;
     }
 
     function showError(message) {
         const errorDiv = document.createElement('div');
         errorDiv.className = 'claude-error';
         errorDiv.innerHTML = `
-            <strong>Erreur Claude PR Reviewer:</strong><br>
-            ${message}
-            <button onclick="this.parentElement.remove()" style="float: right;">×</button>
+            <div>
+                <strong>Claude PR Reviewer:</strong><br>
+                ${message}
+            </div>
+            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; cursor: pointer; float: right;">×</button>
         `;
 
         document.body.insertBefore(errorDiv, document.body.firstChild);
@@ -782,4 +649,5 @@ ${contextualData.breakingChanges.indicators.map(indicator =>
             }
         }, 10000);
     }
+
 })();

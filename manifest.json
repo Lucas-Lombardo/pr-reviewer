@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "PR Reviewer",
-  "version": "1.0.0",
-  "description": "Extension pour reviewer automatiquement les pull requests GitHub avec Claude",
+  "name": "Claude PR Reviewer",
+  "version": "1.1.0",
+  "description": "Extension pour reviewer automatiquement les pull requests GitHub avec Claude AI",
   "permissions": [
     "activeTab",
     "storage",
-    "https://api.github.com/*",
-    "https://api.anthropic.com/*"
+    "notifications"
   ],
   "host_permissions": [
     "https://github.com/*",
@@ -18,6 +17,7 @@
     {
       "matches": ["https://github.com/*/pull/*"],
       "js": ["content.js"],
+      "css": ["style.css"],
       "run_at": "document_idle",
       "all_frames": false
     }
@@ -27,11 +27,20 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Claude PR Reviewer"
+    "default_title": "Claude PR Reviewer - Configurez vos clés API"
   },
   "icons": {
     "16": "icon.png",
     "48": "icon.png",
     "128": "icon.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["style.css"],
+      "matches": ["https://github.com/*"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
   }
 }
