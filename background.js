@@ -26,7 +26,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
 });
 
-// Fonction pour récupérer les données GitHub
+// Fonction pour récupérer les données GitHub avec analyse contextuelle
 async function fetchGitHubData(request, sendResponse) {
     try {
         const { owner, repo, prNumber, githubToken } = request;
@@ -40,6 +40,8 @@ async function fetchGitHubData(request, sendResponse) {
         if (githubToken) {
             headers['Authorization'] = `token ${githubToken}`;
         }
+
+        console.log('🔍 Récupération des données contextuelles...');
 
         // Récupérer les infos de base de la PR
         const prResponse = await fetch(`${baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}`, {
@@ -63,6 +65,29 @@ async function fetchGitHubData(request, sendResponse) {
 
         const files = await filesResponse.json();
 
+        // Récupérer l'historique des commits de la PR
+        console.log('📝 Récupération de l\'historique des commits...');
+        const commitsResponse = await fetch(`${baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/commits`, {
+            headers
+        });
+
+        let commits = [];
+        if (commitsResponse.ok) {
+            commits = await commitsResponse.json();
+        }
+
+        // Analyser les issues Jira liées
+        console.log('🎫 Analyse des références Jira...');
+        const jiraInfo = await extractJiraInfo(pr.title, pr.body, commits, request.jiraConfig);
+
+        // Détecter les breaking changes
+        console.log('⚠️ Détection des breaking changes...');
+        const breakingChanges = detectBreakingChanges(files, commits, pr);
+
+        // Analyser les patterns de modification
+        console.log('📊 Analyse des patterns...');
+        const codeAnalysis = analyzeCodePatterns(files);
+
         // Récupérer le contenu des fichiers modifiés
         const fileContents = [];
         for (const file of files.slice(0, 10)) { // Limiter à 10 fichiers max
@@ -73,7 +98,8 @@ async function fetchGitHubData(request, sendResponse) {
                     additions: file.additions,
                     deletions: file.deletions,
                     patch: file.patch,
-                    language: detectLanguage(file.filename)
+                    language: detectLanguage(file.filename),
+                    changes: file.changes || 0
                 });
             }
         }
@@ -83,9 +109,30 @@ async function fetchGitHubData(request, sendResponse) {
             description: pr.body || '',
             files: fileContents,
             totalFiles: files.length,
-            url: pr.html_url
+            url: pr.html_url,
+            // Nouvelles données contextuelles
+            contextualData: {
+                commits: commits.map(commit => ({
+                    message: commit.commit.message,
+                    author: commit.commit.author.name,
+                    date: commit.commit.author.date,
+                    sha: commit.sha.substring(0, 7)
+                })),
+                jiraInfo,
+                breakingChanges,
+                codeAnalysis,
+                prMetadata: {
+                    baseBranch: pr.base.ref,
+                    headBranch: pr.head.ref,
+                    isDraft: pr.draft,
+                    additions: pr.additions,
+                    deletions: pr.deletions,
+                    changedFiles: pr.changed_files
+                }
+            }
         };
 
+        console.log('✅ Données contextuelles récupérées');
         sendResponse({ result: result });
     } catch (error) {
         console.error('Erreur GitHub API:', error);
@@ -93,7 +140,319 @@ async function fetchGitHubData(request, sendResponse) {
     }
 }
 
-// Fonction pour appeler l'API Claude
+// Extraction des informations Jira optimisée
+async function extractJiraInfo(title, description, commits, jiraConfig) {
+    const jiraPattern = /[A-Z]+-\d+/g;
+    const jiraTickets = new Set();
+
+    // Recherche dans le titre
+    const titleMatches = title.match(jiraPattern) || [];
+    titleMatches.forEach(ticket => jiraTickets.add(ticket));
+
+    // Recherche dans la description
+    if (description) {
+        const descMatches = description.match(jiraPattern) || [];
+        descMatches.forEach(ticket => jiraTickets.add(ticket));
+    }
+
+    // Recherche dans les messages de commit
+    commits.forEach(commit => {
+        const commitMatches = commit.commit.message.match(jiraPattern) || [];
+        commitMatches.forEach(ticket => jiraTickets.add(ticket));
+    });
+
+    // Détection des liens Jira dans la description
+    const jiraUrlPattern = /https?:\/\/([^\/\s]+)\/browse\/([A-Z]+-\d+)/g;
+    const jiraLinks = [];
+    let jiraBaseUrl = null;
+
+    if (description) {
+        let match;
+        while ((match = jiraUrlPattern.exec(description)) !== null) {
+            jiraLinks.push({
+                ticket: match[2],
+                url: match[0]
+            });
+            if (!jiraBaseUrl) {
+                jiraBaseUrl = `https://${match[1]}`;
+            }
+            jiraTickets.add(match[2]);
+        }
+    }
+
+    // Récupérer les détails des tickets Jira SEULEMENT si la config est fournie
+    const ticketDetails = [];
+    if (jiraTickets.size > 0 && jiraConfig && jiraConfig.enabled) {
+        console.log('🔍 Récupération rapide des détails Jira...');
+
+        // Traitement en parallèle pour accélérer
+        const ticketPromises = Array.from(jiraTickets)
+            .slice(0, 3) // Limiter à 3 tickets max pour la performance
+            .map(ticket => fetchJiraTicketInfoFast(ticket, jiraConfig));
+
+        const results = await Promise.allSettled(ticketPromises);
+
+        results.forEach((result, index) => {
+            if (result.status === 'fulfilled' && result.value) {
+                ticketDetails.push(result.value);
+            } else {
+                const ticket = Array.from(jiraTickets)[index];
+                ticketDetails.push({
+                    key: ticket,
+                    summary: 'Détails non disponibles',
+                    description: '',
+                    status: 'API indisponible',
+                    error: true
+                });
+            }
+        });
+    }
+
+    return {
+        tickets: Array.from(jiraTickets),
+        links: jiraLinks,
+        ticketDetails: ticketDetails,
+        jiraBaseUrl: jiraBaseUrl || (jiraConfig ? jiraConfig.baseUrl : null),
+        hasJiraReference: jiraTickets.size > 0 || jiraLinks.length > 0,
+        configurationNeeded: jiraTickets.size > 0 && (!jiraConfig || !jiraConfig.enabled)
+    };
+}
+
+// Fonction optimisée pour récupérer les informations Jira rapidement
+async function fetchJiraTicketInfoFast(ticketKey, jiraConfig) {
+    if (!jiraConfig || !jiraConfig.baseUrl || !jiraConfig.enabled) {
+        throw new Error('Configuration Jira manquante');
+    }
+
+    const apiUrl = `${jiraConfig.baseUrl}/rest/api/2/issue/${ticketKey}?fields=summary,description,status,assignee,priority`;
+
+    const headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    };
+
+    // Ajouter l'authentification si fournie
+    if (jiraConfig.email && jiraConfig.apiToken) {
+        const auth = btoa(`${jiraConfig.email}:${jiraConfig.apiToken}`);
+        headers['Authorization'] = `Basic ${auth}`;
+    } else if (jiraConfig.token) {
+        headers['Authorization'] = `Bearer ${jiraConfig.token}`;
+    }
+
+    try {
+        const response = await fetch(apiUrl, {
+            headers,
+            signal: AbortSignal.timeout(3000) // Timeout de 3 secondes max
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            return {
+                key: data.key,
+                summary: data.fields.summary || 'Titre non disponible',
+                description: data.fields.description ?
+                    (typeof data.fields.description === 'string' ?
+                        data.fields.description :
+                        data.fields.description.content?.[0]?.content?.[0]?.text || '') : '',
+                status: data.fields.status?.name || 'Statut inconnu',
+                assignee: data.fields.assignee?.displayName || null,
+                priority: data.fields.priority?.name || null,
+                url: `${jiraConfig.baseUrl}/browse/${ticketKey}`,
+                error: false
+            };
+        } else if (response.status === 401 || response.status === 403) {
+            return {
+                key: ticketKey,
+                summary: 'Accès restreint',
+                description: 'Vérifiez vos identifiants Jira',
+                status: 'Authentification requise',
+                url: `${jiraConfig.baseUrl}/browse/${ticketKey}`,
+                error: true,
+                errorType: 'auth_required'
+            };
+        } else {
+            throw new Error(`HTTP ${response.status}`);
+        }
+    } catch (error) {
+        if (error.name === 'TimeoutError') {
+            throw new Error('Timeout - API Jira trop lente');
+        }
+        throw new Error(`Erreur réseau: ${error.message}`);
+    }
+}
+
+// Supprimer les anciennes fonctions Jira lentes
+// attemptJiraFetch function removed
+
+// Détection des breaking changes
+function detectBreakingChanges(files, commits, pr) {
+    const breakingIndicators = [];
+
+    // Analyse des messages de commit
+    commits.forEach(commit => {
+        const message = commit.commit.message.toLowerCase();
+        if (message.includes('breaking') ||
+            message.includes('breaking change') ||
+            message.includes('break:') ||
+            message.includes('!:')) {
+            breakingIndicators.push({
+                type: 'commit_message',
+                source: `Commit ${commit.sha.substring(0, 7)}`,
+                detail: commit.commit.message
+            });
+        }
+    });
+
+    // Analyse des fichiers modifiés
+    files.forEach(file => {
+        // Détection de suppressions importantes
+        if (file.deletions > file.additions * 2 && file.deletions > 10) {
+            breakingIndicators.push({
+                type: 'major_deletions',
+                source: file.filename,
+                detail: `${file.deletions} lignes supprimées vs ${file.additions} ajoutées`
+            });
+        }
+
+        // Fichiers de configuration critiques
+        const criticalFiles = [
+            'package.json', 'composer.json', 'requirements.txt',
+            'Dockerfile', 'docker-compose.yml', '.env.example',
+            'schema.sql', 'migration', 'upgrade'
+        ];
+
+        if (criticalFiles.some(pattern => file.filename.toLowerCase().includes(pattern))) {
+            breakingIndicators.push({
+                type: 'critical_file',
+                source: file.filename,
+                detail: 'Modification d\'un fichier critique'
+            });
+        }
+
+        // Analyse du patch pour des changements d'API
+        if (file.patch) {
+            const patch = file.patch.toLowerCase();
+            const apiPatterns = [
+                'function.*public.*\\(',
+                'class.*public',
+                'interface.*\\{',
+                'export.*function',
+                'export.*class',
+                'public.*function',
+                'route.*[\'"`]'
+            ];
+
+            apiPatterns.forEach(pattern => {
+                try {
+                    const regex = new RegExp(pattern, 'g');
+                    if (regex.test(patch)) {
+                        breakingIndicators.push({
+                            type: 'api_change',
+                            source: file.filename,
+                            detail: 'Modification potentielle d\'API publique'
+                        });
+                    }
+                } catch (regexError) {
+                    console.warn('Erreur regex:', pattern, regexError);
+                }
+            });
+        }
+    });
+
+    // Analyse du titre/description pour des mots-clés
+    const text = `${pr.title} ${pr.body || ''}`.toLowerCase();
+    const breakingKeywords = [
+        'breaking change', 'breaking', 'incompatible',
+        'migration required', 'deprecated', 'removed'
+    ];
+
+    breakingKeywords.forEach(keyword => {
+        if (text.includes(keyword)) {
+            breakingIndicators.push({
+                type: 'keyword',
+                source: 'PR description',
+                detail: `Mot-clé détecté: "${keyword}"`
+            });
+        }
+    });
+
+    return {
+        hasBreakingChanges: breakingIndicators.length > 0,
+        indicators: breakingIndicators,
+        riskLevel: breakingIndicators.length === 0 ? 'low' :
+            breakingIndicators.length <= 2 ? 'medium' : 'high'
+    };
+}
+
+// Analyse des patterns de code
+function analyzeCodePatterns(files) {
+    const analysis = {
+        languages: {},
+        fileTypes: {},
+        totalChanges: 0,
+        largestFile: null,
+        testFiles: [],
+        configFiles: [],
+        hasNewFiles: false,
+        hasRemovedFiles: false
+    };
+
+    let maxChanges = 0;
+
+    files.forEach(file => {
+        const ext = file.filename.split('.').pop().toLowerCase();
+        const language = detectLanguage(file.filename);
+
+        // Comptage par langage
+        if (!analysis.languages[language]) {
+            analysis.languages[language] = { files: 0, changes: 0 };
+        }
+        analysis.languages[language].files++;
+        analysis.languages[language].changes += (file.additions + file.deletions);
+
+        // Comptage par type de fichier
+        if (!analysis.fileTypes[ext]) {
+            analysis.fileTypes[ext] = 0;
+        }
+        analysis.fileTypes[ext]++;
+
+        // Tracking du total
+        analysis.totalChanges += (file.additions + file.deletions);
+
+        // Fichier le plus modifié
+        const fileChanges = file.additions + file.deletions;
+        if (fileChanges > maxChanges) {
+            maxChanges = fileChanges;
+            analysis.largestFile = {
+                name: file.filename,
+                changes: fileChanges,
+                additions: file.additions,
+                deletions: file.deletions
+            };
+        }
+
+        // Classification des fichiers
+        if (file.filename.toLowerCase().includes('test') ||
+            file.filename.toLowerCase().includes('spec')) {
+            analysis.testFiles.push(file.filename);
+        }
+
+        const configExtensions = ['json', 'yml', 'yaml', 'xml', 'ini', 'conf'];
+        if (configExtensions.includes(ext) ||
+            file.filename.includes('config') ||
+            file.filename.startsWith('.')) {
+            analysis.configFiles.push(file.filename);
+        }
+
+        // Status tracking
+        if (file.status === 'added') analysis.hasNewFiles = true;
+        if (file.status === 'removed') analysis.hasRemovedFiles = true;
+    });
+
+    return analysis;
+}
+
+// Fonction pour appeler l'API Claude (inchangée)
 async function callClaudeAPI(request, sendResponse) {
     try {
         const { prompt, apiKey } = request;
@@ -109,7 +468,7 @@ async function callClaudeAPI(request, sendResponse) {
                 'anthropic-dangerous-direct-browser-access': 'true'
             },
             body: JSON.stringify({
-                model: 'claude-3-haiku-20240307', // Utiliser Haiku pour plus de rapidité et moins de coût
+                model: 'claude-3-haiku-20240307',
                 max_tokens: 3000,
                 temperature: 0.1,
                 messages: [{

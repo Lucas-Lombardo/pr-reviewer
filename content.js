@@ -205,6 +205,59 @@
             cursor: not-allowed;
         }
 
+        .claude-context-section {
+            background: #f8f9fa;
+            border-left: 4px solid #0969da;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 0 6px 6px 0;
+            color: #24292f;
+        }
+        
+        .claude-context-section strong {
+            color: #0969da;
+            font-weight: 600;
+        }
+        
+        .claude-context-section a {
+            color: #0969da;
+            text-decoration: none;
+        }
+        
+        .claude-context-section a:hover {
+            text-decoration: underline;
+        }
+
+        .claude-breaking-warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-left: 4px solid #f39c12;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 0 6px 6px 0;
+            color: #856404;
+        }
+        
+        .claude-breaking-warning strong {
+            color: #b45309;
+            font-weight: 600;
+        }
+
+        .claude-breaking-danger {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-left: 4px solid #dc3545;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 0 6px 6px 0;
+            color: #721c24;
+        }
+        
+        .claude-breaking-danger strong {
+            color: #721c24;
+            font-weight: 600;
+        }
+
         @media (max-width: 768px) {
             .claude-review-panel {
                 margin: 8px;
@@ -316,7 +369,7 @@
 
         isReviewing = true;
         reviewButton.disabled = true;
-        reviewButton.innerHTML = '⏳ Reviewing...';
+        reviewButton.innerHTML = '⏳ Analyzing...';
 
         try {
             // Vérifier la configuration
@@ -329,15 +382,15 @@
             const prInfo = extractPRInfo();
             console.log('PR Info:', prInfo);
 
-            // Récupérer le code de la PR
+            // Récupérer le code de la PR avec analyse contextuelle
             const prData = await fetchPRData(prInfo, config.githubToken);
-            console.log('PR Data fetched');
+            console.log('PR Data fetched with contextual analysis');
 
             // Envoyer à Claude pour review
             const review = await sendToClaudeForReview(prData, config.claudeApiKey);
 
             // Afficher le résultat
-            displayReview(review);
+            displayReview(review, prData.contextualData);
 
         } catch (error) {
             console.error('Erreur lors de la review:', error);
@@ -414,10 +467,15 @@
     }
 
     async function sendToClaudeForReview(prData, apiKey) {
+        // Construction du contexte enrichi
+        const contextualInfo = buildContextualInfo(prData.contextualData);
+
         const prompt = `Tu es un expert en review de code. Analyse cette pull request GitHub et signale UNIQUEMENT les problèmes concrets que tu identifies dans le code fourni.
 
 **Pull Request: ${prData.title}**
 ${prData.description ? `**Description:** ${prData.description}` : '**Description:** Aucune description fournie'}
+
+${contextualInfo}
 
 **Fichiers modifiés (${prData.files.length}/${prData.totalFiles}):**
 
@@ -430,6 +488,7 @@ ${file.patch}
 
 **INSTRUCTIONS IMPORTANTES:**
 - Analyse UNIQUEMENT le code fourni ci-dessus
+- Prends en compte le contexte fourni (commits, Jira, breaking changes)
 - Ne signale QUE les problèmes que tu peux VOIR concrètement dans le code
 - N'invente AUCUN problème, ne fais AUCUNE supposition
 - Si tu ne vois pas de problème dans une catégorie, écris "Rien à signaler"
@@ -441,6 +500,8 @@ ${file.patch}
 - Titre respecte le format : <gitmoji><espace>[INTL-1234]<espace>Titre en français
 - Description contient un lien Jira si applicable
 - Description contient des instructions de déploiement si nécessaire
+- Cohérence avec les tickets Jira mentionnés
+- Branche cible appropriée
 
 **Ménage:**
 - Debug oublié : console.log, dd, dump, var_dump, print_r
@@ -462,6 +523,7 @@ ${file.patch}
 - Noms de classes/méthodes/fichiers non conformes
 - Textes non traduits (strings hardcodées)
 - Emplacements de fichiers inappropriés
+- Cohérence avec l'historique des commits
 
 **Qualité:**
 - Indentation incorrecte
@@ -475,6 +537,11 @@ ${file.patch}
 - Tests unitaires manquants pour nouvelle logique
 - Tests fonctionnels manquants
 
+**Breaking Changes:**
+- Vérification de la cohérence avec les changements détectés
+- Impact sur l'API publique
+- Documentation des breaking changes
+
 **Refactoring:**
 - Code dupliqué identique
 - Méthodes trop longues (>20 lignes)
@@ -483,7 +550,7 @@ ${file.patch}
 **FORMAT DE RÉPONSE OBLIGATOIRE:**
 
 Pull Request:
-[Problèmes du titre/description de la PR ou "Rien à signaler"]
+[Problèmes du titre/description/contexte de la PR ou "Rien à signaler"]
 
 Ménage:
 [Problèmes de debug/TODO dans fichier:ligne ou "Rien à signaler"]
@@ -500,10 +567,13 @@ Qualité:
 Tests:
 [Problèmes de tests ou "Rien à signaler"]
 
+Breaking Changes:
+[Problèmes de compatibilité ou "Rien à signaler"]
+
 Refacto:
 [Améliorations possibles dans fichier:ligne ou "Rien à signaler"]
 
-**RAPPEL:** Ne signale QUE ce que tu vois réellement dans le code fourni. Pas de suppositions, pas d'inventions.`;
+**RAPPEL:** Ne signale QUE ce que tu vois réellement dans le code fourni. Utilise le contexte pour mieux comprendre mais reste factuel.`;
 
         // Utiliser le background script pour éviter les problèmes CORS
         return new Promise((resolve, reject) => {
@@ -523,7 +593,71 @@ Refacto:
         });
     }
 
-    function displayReview(review) {
+    function buildContextualInfo(contextualData) {
+        if (!contextualData) return '';
+
+        let contextInfo = '\n**CONTEXTE ENRICHI:**\n';
+
+        // Informations sur les branches et métadonnées
+        if (contextualData.prMetadata) {
+            const meta = contextualData.prMetadata;
+            contextInfo += `
+**Métadonnées:**
+- Branche source: ${meta.headBranch} → Branche cible: ${meta.baseBranch}
+- Statut: ${meta.isDraft ? 'Draft' : 'Prêt pour review'}
+- Modifications: +${meta.additions}/-${meta.deletions} lignes sur ${meta.changedFiles} fichiers
+`;
+        }
+
+        // Informations Jira
+        if (contextualData.jiraInfo && contextualData.jiraInfo.hasJiraReference) {
+            contextInfo += `
+**Tickets Jira liés:**
+- Tickets détectés: ${contextualData.jiraInfo.tickets.join(', ')}
+- Liens directs: ${contextualData.jiraInfo.links.length} lien(s) trouvé(s)
+`;
+        }
+
+        // Historique des commits
+        if (contextualData.commits && contextualData.commits.length > 0) {
+            contextInfo += `
+**Historique des commits (${contextualData.commits.length} commits):**
+${contextualData.commits.slice(0, 5).map(commit =>
+                `- ${commit.sha}: ${commit.message.split('\n')[0]} (${commit.author})`
+            ).join('\n')}
+${contextualData.commits.length > 5 ? `\n... et ${contextualData.commits.length - 5} autres commits` : ''}
+`;
+        }
+
+        // Breaking changes
+        if (contextualData.breakingChanges && contextualData.breakingChanges.hasBreakingChanges) {
+            contextInfo += `
+**⚠️ BREAKING CHANGES DÉTECTÉS (Risque: ${contextualData.breakingChanges.riskLevel}):**
+${contextualData.breakingChanges.indicators.map(indicator =>
+                `- ${indicator.type}: ${indicator.detail} (source: ${indicator.source})`
+            ).join('\n')}
+`;
+        }
+
+        // Analyse du code
+        if (contextualData.codeAnalysis) {
+            const analysis = contextualData.codeAnalysis;
+            contextInfo += `
+**Analyse du code:**
+- Langages: ${Object.keys(analysis.languages).join(', ')}
+- Total des modifications: ${analysis.totalChanges} lignes
+- Fichier le plus modifié: ${analysis.largestFile ? `${analysis.largestFile.name} (${analysis.largestFile.changes} changements)` : 'N/A'}
+- Fichiers de test: ${analysis.testFiles.length} fichier(s)
+- Fichiers de config: ${analysis.configFiles.length} fichier(s)
+- Nouveaux fichiers: ${analysis.hasNewFiles ? 'Oui' : 'Non'}
+- Fichiers supprimés: ${analysis.hasRemovedFiles ? 'Oui' : 'Non'}
+`;
+        }
+
+        return contextInfo + '\n';
+    }
+
+    function displayReview(review, contextualData) {
         // Créer ou mettre à jour le panneau de review
         let reviewPanel = document.querySelector('#claude-review-panel');
 
@@ -544,11 +678,15 @@ Refacto:
             }
         }
 
+        // Construire les alertes contextuelles
+        const contextAlerts = buildContextAlerts(contextualData);
+
         reviewPanel.innerHTML = `
             <div class="claude-review-header">
-                <h3>🤖 Claude Code Review</h3>
+                <h3>🤖 Claude Code Review ${contextualData?.breakingChanges?.hasBreakingChanges ? '⚠️' : ''}</h3>
                 <button class="claude-close-btn" onclick="this.closest('#claude-review-panel').style.display='none'">×</button>
             </div>
+            ${contextAlerts}
             <div class="claude-review-content">
                 ${formatReviewContent(review)}
             </div>
@@ -556,6 +694,59 @@ Refacto:
 
         reviewPanel.style.display = 'block';
         reviewPanel.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function buildContextAlerts(contextualData) {
+        if (!contextualData) return '';
+
+        let alerts = '';
+
+        // Alerte breaking changes
+        if (contextualData.breakingChanges && contextualData.breakingChanges.hasBreakingChanges) {
+            const riskLevel = contextualData.breakingChanges.riskLevel;
+            const alertClass = riskLevel === 'high' ? 'claude-breaking-danger' : 'claude-breaking-warning';
+            const icon = riskLevel === 'high' ? '🚨' : '⚠️';
+
+            alerts += `
+                <div class="${alertClass}">
+                    <strong>${icon} Breaking Changes Détectés (Risque: ${riskLevel})</strong><br>
+                    ${contextualData.breakingChanges.indicators.slice(0, 3).map(indicator =>
+                `• ${indicator.detail}`
+            ).join('<br>')}
+                    ${contextualData.breakingChanges.indicators.length > 3 ?
+                `<br>... et ${contextualData.breakingChanges.indicators.length - 3} autre(s)` : ''}
+                </div>
+            `;
+        }
+
+        // Alerte Jira
+        if (contextualData.jiraInfo && contextualData.jiraInfo.hasJiraReference) {
+            alerts += `
+                <div class="claude-context-section">
+                    <strong>🎫 Tickets Jira liés:</strong> ${contextualData.jiraInfo.tickets.join(', ')}
+                    ${contextualData.jiraInfo.links.length > 0 ?
+                `<br><strong>Liens:</strong> ${contextualData.jiraInfo.links.map(link =>
+                    `<a href="${link.url}" target="_blank">${link.ticket}</a>`
+                ).join(', ')}` : ''}
+                </div>
+            `;
+        }
+
+        // Résumé de l'analyse
+        if (contextualData.codeAnalysis) {
+            const analysis = contextualData.codeAnalysis;
+            alerts += `
+                <div class="claude-context-section">
+                    <strong>📊 Résumé:</strong> 
+                    ${analysis.totalChanges} lignes modifiées • 
+                    ${Object.keys(analysis.languages).length} langage(s) • 
+                    ${analysis.testFiles.length} test(s) • 
+                    ${contextualData.commits ? contextualData.commits.length : 0} commit(s)
+                </div>
+            `;
+        }
+
+        return alerts;
     }
 
     function formatReviewContent(review) {
