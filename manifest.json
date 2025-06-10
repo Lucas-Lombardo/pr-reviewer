@@ -11,13 +11,13 @@
   "host_permissions": [
     "https://github.com/*",
     "https://api.github.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://*.atlassian.net/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://github.com/*/pull/*"],
       "js": ["content.js"],
-      "css": ["style.css"],
       "run_at": "document_idle",
       "all_frames": false
     }
@@ -34,12 +34,6 @@
     "48": "icon.png",
     "128": "icon.png"
   },
-  "web_accessible_resources": [
-    {
-      "resources": ["style.css"],
-      "matches": ["https://github.com/*"]
-    }
-  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }

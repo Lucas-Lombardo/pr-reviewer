@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         githubToken: document.getElementById('githubToken'),
         selectedModel: document.getElementById('selectedModel'),
         maxFiles: document.getElementById('maxFiles'),
+        jiraUrl: document.getElementById('jiraUrl'),
+        jiraEmail: document.getElementById('jiraEmail'),
+        jiraApiToken: document.getElementById('jiraApiToken'),
         saveBtn: document.getElementById('saveBtn'),
         status: document.getElementById('status'),
         configStatus: document.getElementById('configStatus'),
@@ -22,8 +25,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         advancedArrow: document.getElementById('advancedArrow'),
         toggleClaudeKey: document.getElementById('toggleClaudeKey'),
         toggleGithubToken: document.getElementById('toggleGithubToken'),
+        toggleJiraToken: document.getElementById('toggleJiraToken'),
         claudeKeyValidation: document.getElementById('claudeKeyValidation'),
-        githubTokenValidation: document.getElementById('githubTokenValidation')
+        githubTokenValidation: document.getElementById('githubTokenValidation'),
+        jiraTokenValidation: document.getElementById('jiraTokenValidation')
     };
 
     // État de l'application
@@ -55,6 +60,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 'githubToken',
                 'selectedModel',
                 'maxFiles',
+                'jiraUrl',
+                'jiraEmail',
+                'jiraApiToken',
                 'showAdvanced'
             ]);
 
@@ -78,6 +86,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             elements.selectedModel.value = state.config.selectedModel;
             elements.maxFiles.value = state.config.maxFiles;
+
+            if (result.jiraUrl) elements.jiraUrl.value = result.jiraUrl;
+            if (result.jiraEmail) elements.jiraEmail.value = result.jiraEmail;
+            if (result.jiraApiToken) elements.jiraApiToken.value = result.jiraApiToken;
 
             console.log('✅ Configuration chargée:', state.config);
         } catch (error) {
@@ -106,6 +118,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         elements.toggleGithubToken.addEventListener('click', () => {
             togglePasswordVisibility(elements.githubToken, elements.toggleGithubToken);
+        });
+
+        elements.toggleJiraToken.addEventListener('click', () => {
+            togglePasswordVisibility(elements.jiraApiToken, elements.toggleJiraToken);
         });
 
         // Section avancée
@@ -168,9 +184,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const githubToken = elements.githubToken.value.trim();
         const selectedModel = elements.selectedModel.value;
         const maxFiles = parseInt(elements.maxFiles.value);
+        const jiraUrl = elements.jiraUrl.value.trim();
+        const jiraEmail = elements.jiraEmail.value.trim();
+        const jiraApiToken = elements.jiraApiToken.value.trim();
 
         // Validation
-        if (!validateForm(claudeApiKey, githubToken, maxFiles)) {
+        if (!validateForm(claudeApiKey, githubToken, maxFiles, jiraUrl, jiraEmail, jiraApiToken)) {
             return;
         }
 
@@ -187,6 +206,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 githubToken,
                 selectedModel,
                 maxFiles,
+                jiraUrl,
+                jiraEmail,
+                jiraApiToken,
                 showAdvanced: state.showAdvanced
             });
 
@@ -194,7 +216,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 claudeApiKey,
                 githubToken,
                 selectedModel,
-                maxFiles
+                maxFiles,
+                jiraUrl,
+                jiraEmail,
+                jiraApiToken
             };
 
             showStatus('✅ Configuration sauvegardée avec succès!', 'success');
@@ -213,7 +238,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function validateForm(claudeApiKey, githubToken, maxFiles) {
+    function validateForm(claudeApiKey, githubToken, maxFiles, jiraUrl, jiraEmail, jiraApiToken) {
         let isValid = true;
 
         // Validation Claude API Key
@@ -226,6 +251,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             isValid = false;
         }
 
+        // Validation Jira (optionnel mais cohérent)
+        if (!validateJiraConfig(jiraUrl, jiraEmail, jiraApiToken)) {
+            isValid = false;
+        }
+
         // Validation max files
         if (isNaN(maxFiles) || maxFiles < 5 || maxFiles > 50) {
             showStatus('Le nombre de fichiers doit être entre 5 et 50', 'error');
@@ -233,6 +263,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         return isValid;
+    }
+
+    function validateJiraConfig(jiraUrl, jiraEmail, jiraApiToken) {
+        // Si un des champs Jira est rempli, ils doivent tous l'être
+        const hasAnyJiraField = jiraUrl || jiraEmail || jiraApiToken;
+        const hasAllJiraFields = jiraUrl && jiraEmail && jiraApiToken;
+
+        if (hasAnyJiraField && !hasAllJiraFields) {
+            showValidationMessage(elements.jiraTokenValidation, 'Configuration Jira incomplète - remplissez tous les champs ou laissez tout vide', 'error');
+            return false;
+        }
+
+        if (jiraUrl && !jiraUrl.startsWith('https://')) {
+            showValidationMessage(elements.jiraTokenValidation, 'URL Jira doit commencer par https://', 'error');
+            return false;
+        }
+
+        if (jiraEmail && !jiraEmail.includes('@')) {
+            showValidationMessage(elements.jiraTokenValidation, 'Format email invalide', 'error');
+            return false;
+        }
+
+        if (hasAllJiraFields) {
+            showValidationMessage(elements.jiraTokenValidation, 'Configuration Jira valide ✓', 'success');
+        } else {
+            showValidationMessage(elements.jiraTokenValidation, '', '');
+        }
+
+        return true;
     }
 
     function validateClaudeKey(key, showMessage = true) {

@@ -548,10 +548,30 @@ Refacto:
                 <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: #666;">
                     📊 Analysé: ${prData.files.length} fichiers • ${new Date().toLocaleTimeString('fr-FR')}
                 </div>
-                ${generateJiraInfo(prData)}
+                <div id="jira-info-container">
+                    <div style="background: #f0f8ff; border: 1px solid #cce7ff; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 13px; color: #666;">
+                        🔄 Récupération des informations Jira...
+                    </div>
+                </div>
                 ${formattedContent}
             </div>
         `;
+
+        // Récupérer les infos Jira de manière asynchrone
+        fetchJiraInfo(prData).then(jiraHtml => {
+            const container = panel.querySelector('#jira-info-container');
+            if (container && jiraHtml) {
+                container.innerHTML = jiraHtml;
+            } else if (container) {
+                container.innerHTML = ''; // Pas d'infos Jira
+            }
+        }).catch(error => {
+            console.warn('Erreur lors de la récupération Jira:', error);
+            const container = panel.querySelector('#jira-info-container');
+            if (container) {
+                container.innerHTML = ''; // Masquer en cas d'erreur
+            }
+        });
 
         panel.style.display = 'block';
 
@@ -631,88 +651,293 @@ Refacto:
         return html;
     }
 
-    function generateJiraInfo(prData) {
-        // Extraire les informations Jira du titre et de la description
-        const jiraTicket = extractJiraTicket(prData.title);
-        const jiraLinks = extractJiraLinks(prData.description);
+    async function fetchJiraInfo(prData) {
+        try {
+            // Extraire le ticket principal du titre
+            const jiraTicket = extractJiraTicket(prData.title);
 
-        if (!jiraTicket && jiraLinks.length === 0) {
-            return ''; // Pas d'infos Jira à afficher
+            if (!jiraTicket) {
+                return null; // Pas de ticket trouvé
+            }
+
+            // Récupérer la configuration Jira via le background script
+            const configResponse = await sendMessage('getJiraConfig');
+
+            if (!configResponse.success || !configResponse.config.hasJiraConfig) {
+                console.warn('Configuration Jira incomplète');
+                return generateBasicJiraInfo(jiraTicket);
+            }
+
+            // Appeler l'API Jira via le background script
+            const jiraResponse = await sendMessage('callJiraAPI', {
+                ticketKey: jiraTicket
+            });
+
+            if (jiraResponse.success && jiraResponse.data) {
+                return generateEnhancedJiraInfo(jiraTicket, jiraResponse.data, configResponse.config.jiraUrl);
+            } else {
+                console.warn('Erreur API Jira:', jiraResponse.error);
+                return generateBasicJiraInfo(jiraTicket);
+            }
+
+        } catch (error) {
+            console.error('Erreur Jira:', error);
+            const jiraTicket = extractJiraTicket(prData.title);
+            return jiraTicket ? generateBasicJiraInfo(jiraTicket) : null;
         }
+    }
 
-        let jiraHtml = `
+    // Fonction utilitaire pour envoyer des messages au background script
+    async function sendMessage(action, data = {}) {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Timeout: pas de réponse du background script'));
+            }, 30000);
+
+            chrome.runtime.sendMessage(
+                { action, ...data },
+                (response) => {
+                    clearTimeout(timeout);
+
+                    if (chrome.runtime.lastError) {
+                        reject(new Error(chrome.runtime.lastError.message));
+                    } else {
+                        resolve(response || {});
+                    }
+                }
+            );
+        });
+    }
+
+    async function callJiraAPI(ticketKey, config) {
+        try {
+            console.log('🎫 Appel API Jira pour:', ticketKey);
+            console.log('🔧 Config Jira:', {
+                url: config.jiraUrl,
+                email: config.jiraEmail,
+                hasToken: !!config.jiraApiToken
+            });
+
+            const url = `${config.jiraUrl}/rest/api/3/issue/${ticketKey}?fields=summary,description,status,priority,assignee,created,updated`;
+
+            const credentials = btoa(`${config.jiraEmail}:${config.jiraApiToken}`);
+
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            console.log('📡 Jira API Response Status:', response.status);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('❌ Jira API Error:', response.status, errorText);
+
+                if (response.status === 401) {
+                    console.error('🔑 Erreur d\'authentification Jira');
+                } else if (response.status === 403) {
+                    console.error('🚫 Accès interdit au ticket Jira');
+                } else if (response.status === 404) {
+                    console.error('🔍 Ticket Jira non trouvé');
+                }
+
+                return null;
+            }
+
+            const data = await response.json();
+            console.log('✅ Données Jira récupérées:', data.key);
+            return data;
+
+        } catch (error) {
+            console.error('❌ Erreur appel Jira API:', error);
+            return null;
+        }
+    }
+
+    function generateBasicJiraInfo(ticketKey) {
+        return `
             <div style="background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); border: 1px solid #bbdefb; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
                 <h4 style="margin: 0 0 12px 0; color: #1976d2; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                    🎫 Informations Jira
+                    🎫 Ticket Jira
                 </h4>
-        `;
-
-        if (jiraTicket) {
-            const jiraUrl = `https://your-domain.atlassian.net/browse/${jiraTicket}`;
-            jiraHtml += `
                 <div style="margin-bottom: 8px;">
-                    <strong>Ticket principal:</strong> 
-                    <a href="${jiraUrl}" target="_blank" style="color: #1976d2; text-decoration: none; font-weight: 600;">${jiraTicket}</a>
-                    <span style="font-size: 12px; color: #666; margin-left: 8px;">📋 Extrait du titre</span>
+                    <strong>Ticket:</strong> 
+                    <span style="color: #1976d2; font-weight: 600;">${ticketKey}</span>
+                    <span style="font-size: 12px; color: #666; margin-left: 8px;">⚠️ Configurez l'API Jira pour plus d'infos</span>
                 </div>
-            `;
+            </div>
+        `;
+    }
+
+    function generateEnhancedJiraInfo(ticketKey, jiraData, jiraUrl) {
+        const fields = jiraData.fields;
+        const ticketUrl = `${jiraUrl}/browse/${ticketKey}`;
+
+        // Traiter la description (peut être en format ADF - Atlassian Document Format)
+        let description = 'Pas de description';
+        if (fields.description) {
+            if (typeof fields.description === 'string') {
+                description = fields.description.substring(0, 300);
+            } else if (fields.description.content) {
+                // Format ADF - extraire le texte simple
+                description = extractTextFromADF(fields.description).substring(0, 300);
+            }
         }
 
-        if (jiraLinks.length > 0) {
-            jiraHtml += `
-                <div style="margin-bottom: 8px;">
-                    <strong>Liens dans la description:</strong>
-                    <div style="margin-top: 4px;">
-                        ${jiraLinks.map(link => `
-                            <a href="${link.url}" target="_blank" style="color: #1976d2; text-decoration: none; margin-right: 12px; font-size: 13px;">
-                                🔗 ${link.ticket}
-                            </a>
-                        `).join('')}
+        // Formatage des dates
+        const createdDate = new Date(fields.created).toLocaleDateString('fr-FR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+
+        const updatedDate = new Date(fields.updated).toLocaleDateString('fr-FR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+
+        // Icône et couleur du statut
+        const statusInfo = getStatusInfo(fields.status?.name);
+
+        // Icône de priorité
+        const priorityIcon = getPriorityIcon(fields.priority?.name);
+
+        return `
+            <div style="background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); border: 1px solid #bbdefb; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 12px 0; color: #1976d2; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                    🎫 Ticket Jira - ${ticketKey}
+                </h4>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                    <div>
+                        <div style="margin-bottom: 8px;">
+                            <strong>Titre:</strong> 
+                            <a href="${ticketUrl}" target="_blank" style="color: #1976d2; text-decoration: none;">${fields.summary || 'Sans titre'}</a>
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <strong>Statut:</strong> 
+                            <span style="background: ${statusInfo.color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                                ${statusInfo.icon} ${fields.status?.name || 'Inconnu'}
+                            </span>
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <strong>Priorité:</strong> 
+                            <span style="font-weight: 600;">${priorityIcon} ${fields.priority?.name || 'Non définie'}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="margin-bottom: 8px;">
+                            <strong>Assigné à:</strong> ${fields.assignee?.displayName || 'Non assigné'}
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <strong>Créé le:</strong> ${createdDate}
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <strong>Modifié le:</strong> ${updatedDate}
+                        </div>
                     </div>
                 </div>
-            `;
+                
+                <div style="border-top: 1px solid #bbdefb; padding-top: 12px;">
+                    <strong>Description:</strong>
+                    <div style="background: white; border: 1px solid #e1e4e8; border-radius: 6px; padding: 12px; margin-top: 8px; font-size: 14px; line-height: 1.5; max-height: 120px; overflow-y: auto;">
+                        ${description.length > 295 ? description + '...' : description}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function extractTextFromADF(adfContent) {
+        // Fonction récursive pour extraire le texte d'un document ADF
+        function extractText(node) {
+            let text = '';
+
+            if (node.type === 'text') {
+                return node.text || '';
+            }
+
+            if (node.content && Array.isArray(node.content)) {
+                for (const child of node.content) {
+                    text += extractText(child);
+                }
+            }
+
+            // Ajouter des espaces pour certains types de nœuds
+            if (node.type === 'paragraph' || node.type === 'heading') {
+                text += ' ';
+            }
+
+            return text;
         }
 
-        jiraHtml += '</div>';
-        return jiraHtml;
+        return extractText(adfContent).trim();
+    }
+
+    function getStatusInfo(status) {
+        const statusMap = {
+            'To Do': { icon: '📋', color: '#6c757d' },
+            'À faire': { icon: '📋', color: '#6c757d' },
+            'In Progress': { icon: '🔄', color: '#007bff' },
+            'En cours': { icon: '🔄', color: '#007bff' },
+            'In Review': { icon: '👁️', color: '#ffc107' },
+            'En révision': { icon: '👁️', color: '#ffc107' },
+            'Done': { icon: '✅', color: '#28a745' },
+            'Terminé': { icon: '✅', color: '#28a745' },
+            'Closed': { icon: '🔒', color: '#6c757d' },
+            'Fermé': { icon: '🔒', color: '#6c757d' }
+        };
+
+        return statusMap[status] || { icon: '❓', color: '#6c757d' };
+    }
+
+    function getPriorityIcon(priority) {
+        const priorityMap = {
+            'Highest': '🔴🔴',
+            'High': '🔴',
+            'Medium': '🟡',
+            'Low': '🟢',
+            'Lowest': '🟢🟢',
+            'Très élevée': '🔴🔴',
+            'Élevée': '🔴',
+            'Moyenne': '🟡',
+            'Faible': '🟢',
+            'Très faible': '🟢🟢'
+        };
+
+        return priorityMap[priority] || '⚪';
+    }
+
+    async function sendMessageToBackground(action, data = {}) {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Timeout: pas de réponse du background script'));
+            }, 30000); // 30 secondes pour Jira
+
+            chrome.runtime.sendMessage(
+                { action, ...data },
+                (response) => {
+                    clearTimeout(timeout);
+
+                    if (chrome.runtime.lastError) {
+                        reject(new Error(chrome.runtime.lastError.message));
+                    } else {
+                        resolve(response || {});
+                    }
+                }
+            );
+        });
     }
 
     function extractJiraTicket(title) {
         // Extraire le ticket Jira du format [INTL-1234] ou similaire
         const match = title.match(/\[([A-Z]+-\d+)\]/);
         return match ? match[1] : null;
-    }
-
-    function extractJiraLinks(description) {
-        if (!description) return [];
-
-        const links = [];
-
-        // Rechercher les URLs Jira complètes
-        const urlPattern = /https?:\/\/[^\s]*\.atlassian\.net\/browse\/([A-Z]+-\d+)/g;
-        let match;
-
-        while ((match = urlPattern.exec(description)) !== null) {
-            links.push({
-                ticket: match[1],
-                url: match[0]
-            });
-        }
-
-        // Rechercher les références de tickets simples (INTL-1234)
-        const ticketPattern = /\b([A-Z]+-\d+)\b/g;
-        while ((match = ticketPattern.exec(description)) !== null) {
-            const ticket = match[1];
-            // Éviter les doublons
-            if (!links.some(link => link.ticket === ticket)) {
-                links.push({
-                    ticket: ticket,
-                    url: `https://your-domain.atlassian.net/browse/${ticket}`
-                });
-            }
-        }
-
-        return links;
     }
 
     function showError(message) {

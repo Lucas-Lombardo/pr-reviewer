@@ -421,6 +421,35 @@
                             Limite le nombre de fichiers analysés par PR (5-50)
                         </small>
                     </div>
+
+                    <div class="form-group">
+                        <label for="jiraUrl">🔗 URL Jira (optionnel)</label>
+                        <input type="text" id="jiraUrl" placeholder="https://your-domain.atlassian.net">
+                        <small>
+                            URL de votre instance Jira pour récupérer les infos des tickets
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="jiraEmail">📧 Email Jira (optionnel)</label>
+                        <input type="email" id="jiraEmail" placeholder="votre.email@entreprise.com">
+                        <small>
+                            Votre email Jira pour l'authentification API
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="jiraApiToken">🔑 Token API Jira (optionnel)</label>
+                        <div class="toggle-password">
+                            <input type="password" id="jiraApiToken" placeholder="Votre token API Jira">
+                            <button type="button" id="toggleJiraToken" title="Afficher/Masquer">👁️</button>
+                        </div>
+                        <small>
+                            <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Créer un token API</a>
+                            sur votre compte Atlassian
+                        </small>
+                        <div id="jiraTokenValidation" class="validation-message"></div>
+                    </div>
                 </div>
             </div>
 
