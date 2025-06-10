@@ -414,10 +414,10 @@
     }
 
     async function sendToClaudeForReview(prData, apiKey) {
-        const prompt = `Tu es un expert en review de code. Analyse cette pull request GitHub et fournis des conseils détaillés pour améliorer le code.
+        const prompt = `Tu es un expert en review de code. Analyse cette pull request GitHub et signale UNIQUEMENT les problèmes concrets que tu identifies dans le code fourni.
 
 **Pull Request: ${prData.title}**
-${prData.description ? `Description: ${prData.description}` : ''}
+${prData.description ? `**Description:** ${prData.description}` : '**Description:** Aucune description fournie'}
 
 **Fichiers modifiés (${prData.files.length}/${prData.totalFiles}):**
 
@@ -428,78 +428,82 @@ ${file.patch}
 \`\`\`
 `).join('\n')}
 
-Voici ce que tu dois check sur la <PR>:</PR>
+**INSTRUCTIONS IMPORTANTES:**
+- Analyse UNIQUEMENT le code fourni ci-dessus
+- Ne signale QUE les problèmes que tu peux VOIR concrètement dans le code
+- N'invente AUCUN problème, ne fais AUCUNE supposition
+- Si tu ne vois pas de problème dans une catégorie, écris "Rien à signaler"
+- Sois très précis sur les numéros de ligne et noms de fichiers
+
+**Checklist à vérifier:**
+
+**Pull Request:**
+- Titre respecte le format : <gitmoji><espace>[INTL-1234]<espace>Titre en français
+- Description contient un lien Jira si applicable
+- Description contient des instructions de déploiement si nécessaire
+
+**Ménage:**
+- Debug oublié : console.log, dd, dump, var_dump, print_r
+- Commentaires TODO, FIXME oubliés
+- Paramètres de méthodes non utilisés (PHP, JS, Twig)
+- Imports/require non utilisés
+
+**Typage:**
+- Types PHP manquants sur méthodes, paramètres, retours
+- Annotations manquantes pour array PHP et Collection<T>
+- Types TypeScript manquants ou 'any'
+- Propriétés PHP sans readonly quand approprié
+- Contrôleurs Catalyst sans suffixe "Element"
+- Visibilité manquante (private/protected/public)
+- Variables nullable non testées avant utilisation
+
+**Cohérence:**
+- Noms de variables incohérents
+- Noms de classes/méthodes/fichiers non conformes
+- Textes non traduits (strings hardcodées)
+- Emplacements de fichiers inappropriés
+
+**Qualité:**
+- Indentation incorrecte
+- Fautes d'orthographe dans commentaires/noms
+- Valeurs magiques sans constantes
+- Variables intermédiaires manquantes (calculs redondants)
+
+**Tests:**
+- Cas d'erreur non testés
+- Fixtures manquantes ou incorrectes
+- Tests unitaires manquants pour nouvelle logique
+- Tests fonctionnels manquants
+
+**Refactoring:**
+- Code dupliqué identique
+- Méthodes trop longues (>20 lignes)
+- Classes avec trop de responsabilités
+
+**FORMAT DE RÉPONSE OBLIGATOIRE:**
+
 Pull Request:
-- Vérifier la branche cible
-- Nommage de la PR : <gitmoji><espace>[INTL-1234]<espace>Titre du ticket (ou résumé des modifications) en français
-- Description de la PR : lien Jira, instructions de déploiement (requêtes SQL, etc.)
+[Problèmes du titre/description de la PR ou "Rien à signaler"]
 
 Ménage:
-- Debug oublié : console.log, dd, dump…
-- Todo, fixme oublié
-- Paramètres inutilisés PHP, JS, Twig
+[Problèmes de debug/TODO dans fichier:ligne ou "Rien à signaler"]
 
 Typage:
-- Types PHP sur méthodes, paramètres, retours…
-- Annotations pour array PHP et Collection<T> (paramètres, retours, membres de classe…)
-- Types Typescript
-- PHP readonly
-- Suffixe Element pour controller Catalyst
-- Visibilité des méthodes, membres, constantes
-- Pas (~le moins possible) d’annotation @var, de type ts any
-- Test des variables nullable
-
-Cohérence
-- Traductions
-- Nommage des variables
-- Nommage des classes
-- Nommage des méthodes
-- Nommage des fichiers
-- Emplacement des fichiers
-
-Qualité
-- Indentation
-- Orthographe
-- Constantes
-- Variables intermédiaires (pour éviter les appels redondants)
-
-Tests
-- Cas non nominaux
-- Fixtures
-- Tests unitaires
-- Tests fonctionnels
-
-Refacto
-- Code dupliqué
-- Améliorations
-- Uniformisation
-
-À la fin je ne veux qu un résumé des choses à faire. Ne me renvoie pas tout dans les details.
-EXEMPLE DE SORTIE:
-Pull Request:
-Rien à signaler
-
-Ménage:
-Debug oublié dans le ficher xxx.php ligne 123
-Todo, fixme oublié dans le ficher xxx.php ligne 345
-
-Typage:
-Rien à signaler
+[Problèmes de types dans fichier:ligne ou "Rien à signaler"]
 
 Cohérence:
-Rien à signaler
+[Problèmes de nommage/traduction dans fichier:ligne ou "Rien à signaler"]
 
 Qualité:
-Rien à signaler
+[Problèmes de qualité dans fichier:ligne ou "Rien à signaler"]
 
 Tests:
-Rien à signaler
+[Problèmes de tests ou "Rien à signaler"]
 
 Refacto:
-Rien à signaler
+[Améliorations possibles dans fichier:ligne ou "Rien à signaler"]
 
-Ne met rien d'autre.
-`;
+**RAPPEL:** Ne signale QUE ce que tu vois réellement dans le code fourni. Pas de suppositions, pas d'inventions.`;
 
         // Utiliser le background script pour éviter les problèmes CORS
         return new Promise((resolve, reject) => {
