@@ -17,7 +17,15 @@
   "content_scripts": [
     {
       "matches": ["https://github.com/*/pull/*"],
-      "js": ["content.js"],
+      "js": [
+        "js/utils.js",
+        "js/ui-manager.js",
+        "js/github-api.js",
+        "js/claude-api.js",
+        "js/jira-manager.js",
+        "js/review-display.js",
+        "content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }
